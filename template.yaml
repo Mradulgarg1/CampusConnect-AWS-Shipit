@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CampusConnect - student campus issue reporting and tracking API
+
+Parameters:
+  AdminKey:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+    Description: Private moderator key (at least 12 characters). Do not commit it to GitHub.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 10
+    MemorySize: 128
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref IssuesTable
+        ADMIN_KEY: !Ref AdminKey
+
+Resources:
+  CampusConnectApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowHeaders:
+          - Content-Type
+          - x-admin-key
+        AllowMethods:
+          - GET
+          - POST
+          - PATCH
+          - OPTIONS
+        MaxAge: 600
+
+  IssuesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: app.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IssuesTable
+      Events:
+        ListIssues:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CampusConnectApi
+            Path: /issues
+            Method: GET
+        CreateIssue:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CampusConnectApi
+            Path: /issues
+            Method: POST
+        UpdateIssueStatus:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CampusConnectApi
+            Path: /issues/{issueId}/status
+            Method: PATCH
+
+  IssuesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'CampusConnect-Issues-${AWS::StackName}'
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      AttributeDefinitions:
+        - AttributeName: issueId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: issueId
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway base URL. Paste this into API_BASE in app.js.
+    Value: !Sub 'https://${CampusConnectApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  IssuesTableName:
+    Description: DynamoDB table storing campus reports.
+    Value: !Ref IssuesTable
